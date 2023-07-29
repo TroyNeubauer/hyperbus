@@ -135,7 +135,7 @@ where
             // TODO: possible race with writer finding us, since it looks for `left_reads_count >= 1`,
             // but here we already commited to having the writer free our elements but it might not know we
             // need its help
-            dbg!(self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel));
+            self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel);
 
             // TODO: maybe wake writer? It may be able to make progress now that our elements can
             // be freed. Maybe solved with scan flag in `try_cleanup_readers`

@@ -41,9 +41,11 @@ pub mod prelude {
     };
 }
 
+pub use prelude::{Bus, BusReceiver};
+
 use prelude::*;
 
-/// This enumeration is the list of the possible reasons that a try recv operation could fail
+/// This enumeration is the list of the possible reasons that a try recv operation could fail.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TryRecvError {
     Empty,
@@ -63,21 +65,21 @@ where
 {
     slots: Arc<[Slot<T>]>,
 
-    /// Used to awaken the sender when it is waiting for capacity in `slots`
+    /// Used to awaken the sender when it is waiting for capacity in `slots`.
     writer_waker: AtomicWaker,
 
-    /// Location next write will happen, modulo `slots.len()`
+    /// Location next write will happen, modulo `slots.len()`.
     ///
     /// Only modified by writer
     head: AtomicUsize,
 
-    /// Location of last initialized value, modulo `slots.len()`
+    /// Location of the most recently initialized element, modulo `slots.len()`.
+    /// Queue is empty when `head == tail`, as we always leave an empty slot to detect empty vs full
     ///
     /// Modified by readers or the writer during leave cleanup
-    // TODO: do we actually need this? Is `Slot::remaining` sufficent?
     tail: AtomicUsize,
 
-    /// The number of readers that have left and not been accounted for by the writer
+    /// The number of readers that have left and not been accounted for by the writer.
     left_reads_count: AtomicUsize,
 }
 
@@ -175,7 +177,7 @@ where
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
             //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
             // 3. We avoid races with the writer since our `remaining` count hasnt reached zero yet
-            // 
+            //
             // Therefore we have exclusive access to `idx`
             unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
         }

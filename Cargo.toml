@@ -7,14 +7,20 @@ edition = "2021"
 futures-core = "0.3.28"
 pin-project = "1.1.2"
 
+[dev-dependencies]
+futures = "0.3.28"
+criterion = { version = "0.4", features = ["html_reports"] }
+crossbeam-channel = "0.5.8"
+
+[[bench]]
+name = "basic"
+harness = false
+
 [target.'cfg(loom)'.dependencies]
 loom = { version = "0.5", features = ["futures"] }
 
 [target.'cfg(not(loom))'.dependencies]
 atomic-waker = "1.1.1"
-
-[dev-dependencies]
-futures = "0.3.28"
 
 [target.'cfg(not(loom))'.dev-dependencies]
 tokio = { version = "1.29.1", default-features = false, features = ["rt", "time", "macros"] }

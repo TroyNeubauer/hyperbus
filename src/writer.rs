@@ -146,7 +146,7 @@ where
     /// Returns early if `waiting_on_fence` is set to an index whose `remaining` count becomes zero
     /// as part of cleanup
     fn try_cleanup_readers(&mut self, waiting_on_fence: Option<usize>, scan: bool) {
-        while dbg!(self.shared.left_reads_count.load(Ordering::Acquire)) >= 1 || scan {
+        while self.shared.left_reads_count.load(Ordering::Acquire) >= 1 || scan {
             // TODO: store id of least recently left reader as optimization to avoid scanning
             // when readers are less often than when `poll_broadcast` is called
             let Some(left_reader_index) = self.readers.iter().position(|r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::WRITER_CLEANUP) else {
@@ -240,23 +240,10 @@ where
         self.try_cleanup_readers(None, true);
 
         // the only remaining readers are responsible for cleaing up after themselves
-        debug_assert_eq!(
-            self.readers
-                .iter()
-                .filter(|r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::RUNNING)
-                .count(),
-            0
-        );
-
-        debug_assert_eq!(
-            self.readers
-                .iter()
-                .filter(
-                    |r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::WRITER_CLEANUP
-                )
-                .count(),
-            0
-        );
+        for r in &self.readers {
+            let state = r.cleanup_state.load(Ordering::Acquire);
+            assert!(state == reader_cleanup::READER_CLEANUP);
+        }
     }
 }
 
