@@ -117,12 +117,12 @@ where
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
         assert_ne!(remaining, 0);
 
-        let val = if remaining == 1 {
+        let is_last = remaining == 1;
+
+        let val = if is_last {
             // last one!
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
             assert_eq!(old_tail_idx, idx);
-
-            self.writer_waker.wake();
 
             // SAFETY:
             // By our contract, this function is only called once per reader and each reader has
@@ -146,6 +146,11 @@ where
 
         // we are done with this slot
         self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+
+        if is_last {
+            // Wake waker now that remaining is zero
+            self.writer_waker.wake();
+        }
 
         val
     }

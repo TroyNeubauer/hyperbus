@@ -23,4 +23,4 @@ loom = { version = "0.5", features = ["futures"] }
 atomic-waker = "1.1.1"
 
 [target.'cfg(not(loom))'.dev-dependencies]
-tokio = { version = "1.29.1", default-features = false, features = ["rt", "time", "macros"] }
+tokio = { version = "1.29.1", default-features = false, features = ["rt", "time", "macros", "sync"] }

@@ -142,6 +142,35 @@ async fn it_runs_blocked_reads() {
 }
 
 #[tokio::test]
+async fn in_order() {
+    let num_elements = usize::MAX;
+    let threads = 10;
+
+    let mut bus = hyperbus::Bus::<u32>::new(8);
+    let rxs: Vec<_> = (0..threads)
+        .map(|thread_id| {
+            let mut rx = bus.add_rx();
+            std::thread::spawn(move || {
+                futures::executor::block_on(async move {
+                    for i in 0..num_elements {
+                        let val = rx.recv().await.unwrap();
+                        assert_eq!(val, i as u32);
+                    }
+                });
+            })
+        })
+        .collect();
+
+    for i in 0..num_elements {
+        bus.broadcast(i as u32).await;
+        if i % 1_000_00 == 0 {
+            println!("{i}");
+        }
+    }
+    rxs.into_iter().for_each(|t| t.join().unwrap());
+}
+
+#[tokio::test]
 async fn test_busy() {
     // start a bus with limited space
     let mut bus = Bus::new(1);

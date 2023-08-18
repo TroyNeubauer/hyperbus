@@ -59,6 +59,9 @@ where
         val: &mut Option<T>,
         cx: &mut Context<'_>,
     ) -> Poll<()> {
+        // register before trying to send to avoid a race between the broadcast failing, and a
+        // reader waking us racing with us calling register
+        self.shared.writer_waker.register(cx.waker());
         match self.as_mut().try_broadcast_inner(val) {
             Ok(()) => {
                 // TODO: optimize?
@@ -68,10 +71,7 @@ where
                 Poll::Ready(())
             }
 
-            Err(()) => {
-                self.shared.writer_waker.register(cx.waker());
-                Poll::Pending
-            }
+            Err(()) => Poll::Pending,
         }
     }
 
@@ -96,7 +96,8 @@ where
             // or some readers have left and we need to account for them
             self.try_cleanup_readers(Some(fence), false);
 
-            if self.shared.slots[fence].remaining.load(Ordering::Acquire) != 0 {
+            let remaining_readers = self.shared.slots[fence].remaining.load(Ordering::Acquire);
+            if remaining_readers != 0 {
                 // Slot still taken after trying cleanup (full)
                 return Err(());
             }
@@ -164,8 +165,8 @@ where
 
             let info = self.readers.remove(left_reader_index);
 
-            // The release store(true) to `has_left` happens after the release store to `left_with_next`
-            // Because `has_left` is not reused after being set by a leaving reader we are
+            // The release store(WRITER_CLEANUP) to `cleanup_state` happens after the release store to `next`
+            // Because `cleanup_state` is not reused after being set by a leaving reader we are
             // seeing the reader's next value at the time it left
             let reader_tail = info.next.load(Ordering::Acquire);
             let reader_head = self.shared.head.load(Ordering::Acquire);
