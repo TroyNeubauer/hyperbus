@@ -77,7 +77,7 @@ where
 
     /// Tries to insert val into the inner buffer, without handling wakeups.
     ///
-    /// On sucess `val` s moved into the buffer and is set to `None`.
+    /// On success `val` s moved into the buffer and is set to `None`.
     ///
     /// # Panics
     /// This function panics if `val` is `None`
@@ -194,7 +194,7 @@ where
             self.shared.left_reads_count.fetch_sub(1, Ordering::AcqRel);
 
             if fence_ready {
-                // Dont continue to cleanup crap if our fence is now ready
+                // Don't continue to cleanup crap if our fence is now ready
                 // For now return here to decrease broadcast latency
                 // However there may be more readers we could cleanup right now, and doing so
                 // might reduce the amount of cleanup this thread would do in the future, (by
@@ -232,14 +232,14 @@ where
         }
 
         // TODO: Stronger barrier?
-        // Ensure that readers leaving dont race with dropping self.
+        // Ensure that readers leaving don't race with dropping self.
         std::sync::atomic::fence(Ordering::Release);
 
         // Now clean up each the elements for each reader we are responsible for
 
         self.try_cleanup_readers(None, true);
 
-        // the only remaining readers are responsible for cleaing up after themselves
+        // the only remaining readers are responsible for cleaning up after themselves
         debug_assert_eq!(
             self.readers
                 .iter()

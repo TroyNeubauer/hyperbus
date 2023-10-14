@@ -38,7 +38,7 @@ where
             Ok(t) => Poll::Ready(Ok(t)),
             Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError)),
             Err(TryRecvError::Empty) => {
-                // TODO: check again? Orderings here and sprious wakeups
+                // TODO: check again? Orderings here and spurious wakeups
                 self.info.waker.register(cx.waker());
                 Poll::Pending
             }
@@ -57,7 +57,7 @@ where
             if Arc::strong_count(&self.info) == 1 {
                 return Err(TryRecvError::Disconnected);
             } else {
-                // TODO: make sure we dont race with the writer being dropped here, miss a wakeup and hang
+                // TODO: make sure we don't race with the writer being dropped here, miss a wakeup and hang
                 return Err(TryRecvError::Empty);
             }
         }
@@ -133,7 +133,7 @@ where
             }
         } else if state == reader_cleanup::WRITER_CLEANUP {
             // TODO: possible race with writer finding us, since it looks for `left_reads_count >= 1`,
-            // but here we already commited to having the writer free our elements but it might not know we
+            // but here we already committed to having the writer free our elements but it might not know we
             // need its help
             dbg!(self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel));
 

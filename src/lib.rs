@@ -74,7 +74,7 @@ where
     /// Location of last initialized value, modulo `slots.len()`
     ///
     /// Modified by readers or the writer during leave cleanup
-    // TODO: do we actually need this? Is `Slot::remaining` sufficent?
+    // TODO: do we actually need this? Is `Slot::remaining` sufficient?
     tail: AtomicUsize,
 
     /// The number of readers that have left and not been accounted for by the writer
@@ -130,15 +130,15 @@ where
             unsafe { ptr::read(self.slots[idx].inner.get() as *const T) }
         } else {
             // SAFETY:
-            // 1. The caller guarnteed that we can access `idx`
+            // 1. The caller guaranteed that we can access `idx`
             // 2. `remaining` is at least two, therefore no reader can move out of `idx`
             // 3. `remaining` is at least one, therefore the reader cannot mutate `idx`
             //
-            // Therefore we can access `idx` through a shared refrence
+            // Therefore we can access `idx` through a shared reference
             let val = unsafe { &*self.slots[idx].inner.get() };
 
             // SAFETY:
-            // 1. The caller guarnteed that we can access `idx`, therefore it is initialized
+            // 1. The caller guaranteed that we can access `idx`, therefore it is initialized
             Clone::clone(unsafe { val.assume_init_ref() })
         };
 
@@ -174,7 +174,7 @@ where
             // 1. By our contract, `idx` is in the read section
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
             //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
-            // 3. We avoid races with the writer since our `remaining` count hasnt reached zero yet
+            // 3. We avoid races with the writer since our `remaining` count hasn't reached zero yet
             // 
             // Therefore we have exclusive access to `idx`
             unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
