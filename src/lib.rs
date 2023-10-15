@@ -104,7 +104,7 @@ where
 
     /// Removes the item at index `idx` by cloning (or moving if last reader).
     ///
-    /// Adjusts `Slot::remaining` on idx plus handles writer wakeups and advancing tail.    
+    /// Adjusts `Slot::remaining` on idx plus handles writer wakeups and advancing tail.
     ///
     /// # Safety
     ///
@@ -113,12 +113,12 @@ where
     /// 2. `remove(idx)` must only be called once per reader for a particular location
     unsafe fn take(&self, idx: usize) -> T {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        assert_ne!(remaining, 0);
+        debug_assert_ne!(remaining, 0);
 
         let val = if remaining == 1 {
             // last one!
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            assert_eq!(old_tail_idx, idx);
+            debug_assert_eq!(old_tail_idx, idx);
 
             self.writer_waker.wake();
 
@@ -132,7 +132,7 @@ where
             // SAFETY:
             // 1. The caller guaranteed that we can access `idx`
             // 2. `remaining` is at least two, therefore no reader can move out of `idx`
-            // 3. `remaining` is at least one, therefore the reader cannot mutate `idx`
+            // 3. `remaining` is at least one, therefore no writer can mutate `idx`
             //
             // Therefore we can access `idx` through a shared reference
             let val = unsafe { &*self.slots[idx].inner.get() };
@@ -163,12 +163,12 @@ where
     ///    of readers that existed when slot `idx` was initialized
     unsafe fn cleanup(&self, idx: usize) -> usize {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        assert_ne!(remaining, 0, "not already freed");
+        debug_assert_ne!(remaining, 0, "not already freed");
 
         if remaining == 1 {
             // last one!
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            assert_eq!(old_tail_idx, idx);
+            debug_assert_eq!(old_tail_idx, idx);
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
