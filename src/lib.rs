@@ -3,6 +3,7 @@
 #![warn(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 mod atomic_waker;
@@ -23,17 +24,21 @@ pub mod prelude {
     pub(crate) use futures_core::ready;
 
     #[cfg(loom)]
-    mod atomic {
+    pub(crate) mod atomic {
         pub use loom::sync::{
-            atomic::{AtomicBool, AtomicU8, AtomicUsize},
+            atomic::{fence, AtomicBool, AtomicU8, AtomicUsize},
             Arc,
         };
     }
 
     #[cfg(not(loom))]
     pub(crate) mod atomic {
-        pub use alloc::{vec::Vec, sync::Arc};
-        pub use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, fence};
+        #[cfg(not(feature = "std"))]
+        pub use alloc::{sync::Arc, vec::Vec};
+        #[cfg(feature = "std")]
+        pub use std::{sync::Arc, vec::Vec};
+
+        pub use core::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize};
     }
 
     pub(crate) use atomic::*;
