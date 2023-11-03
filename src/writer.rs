@@ -17,7 +17,7 @@ where
     pub fn new(size: usize) -> Self {
         Self {
             shared: Arc::new(Shared::new(size)),
-            readers: vec![],
+            readers: Vec::new(),
             next_reader_id: 0,
         }
     }
@@ -29,7 +29,7 @@ where
     /// Note that a successful send does not guarantee that the receiver will ever see the data if there is a buffer on this channel.
     /// Items may be enqueued in the internal buffer for the receiver to receive at a later time.
     /// Furthermore, in contrast to regular channels, a bus is not considered closed if there are no consumers, and thus broadcasts will continue to succeed.
-    pub fn broadcast(&mut self, val: T) -> Broadcast<T> {
+    pub fn broadcast(&mut self, val: T) -> Broadcast<'_, T> {
         Broadcast {
             sender: Pin::new(self),
             val: Some(val),
@@ -146,7 +146,7 @@ where
     /// Returns early if `waiting_on_fence` is set to an index whose `remaining` count becomes zero
     /// as part of cleanup
     fn try_cleanup_readers(&mut self, waiting_on_fence: Option<usize>, scan: bool) {
-        while dbg!(self.shared.left_reads_count.load(Ordering::Acquire)) >= 1 || scan {
+        while self.shared.left_reads_count.load(Ordering::Acquire) >= 1 || scan {
             // TODO: store id of least recently left reader as optimization to avoid scanning
             // when readers are less often than when `poll_broadcast` is called
             let Some(left_reader_index) = self.readers.iter().position(|r| {
@@ -237,7 +237,7 @@ where
 
         // TODO: Stronger barrier?
         // Ensure that readers leaving don't race with dropping self.
-        std::sync::atomic::fence(Ordering::Release);
+        atomic::fence(Ordering::Release);
 
         // Now clean up each the elements for each reader we are responsible for
 
@@ -281,9 +281,9 @@ where
     type Output = ();
 
     fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         let mut this = self.project();
         this.sender.as_mut().poll_broadcast(&mut this.val, cx)
     }

@@ -3,6 +3,11 @@ name = "hyperbus"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+std = []
+
+default = ["std"]
+
 [dependencies]
 futures-core = "0.3.28"
 pin-project = "1.1.2"

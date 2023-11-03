@@ -1,12 +1,18 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+//#![warn(missing_docs)]
+#![warn(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 mod atomic_waker;
 mod reader;
 mod writer;
 
 pub mod prelude {
-    pub(crate) use futures_core::ready;
-    pub(crate) use std::{
+    pub(crate) use core::{
         cell::UnsafeCell,
-        fmt::Debug,
+        fmt::{self, Debug},
         future::Future,
         mem::MaybeUninit,
         pin::Pin,
@@ -14,6 +20,7 @@ pub mod prelude {
         sync::atomic::Ordering,
         task::{Context, Poll, Waker},
     };
+    pub(crate) use futures_core::ready;
 
     #[cfg(loom)]
     mod atomic {
@@ -24,11 +31,9 @@ pub mod prelude {
     }
 
     #[cfg(not(loom))]
-    mod atomic {
-        pub use std::sync::{
-            atomic::{AtomicBool, AtomicU8, AtomicUsize},
-            Arc,
-        };
+    pub(crate) mod atomic {
+        pub use alloc::{vec::Vec, sync::Arc};
+        pub use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, fence};
     }
 
     pub(crate) use atomic::*;
@@ -210,7 +215,7 @@ struct ReaderInfo {
 }
 
 impl Debug for ReaderInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReaderInfo")
             .field("id", &self.id)
             .field(
