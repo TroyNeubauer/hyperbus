@@ -1,12 +1,19 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+//#![warn(missing_docs)]
+#![warn(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 mod atomic_waker;
 mod reader;
 mod writer;
 
 pub mod prelude {
-    pub(crate) use futures_core::ready;
-    pub(crate) use std::{
+    pub(crate) use core::{
         cell::UnsafeCell,
-        fmt::Debug,
+        fmt::{self, Debug},
         future::Future,
         mem::MaybeUninit,
         pin::Pin,
@@ -14,21 +21,24 @@ pub mod prelude {
         sync::atomic::Ordering,
         task::{Context, Poll, Waker},
     };
+    pub(crate) use futures_core::ready;
 
     #[cfg(loom)]
-    mod atomic {
+    pub(crate) mod atomic {
         pub use loom::sync::{
-            atomic::{AtomicBool, AtomicU8, AtomicUsize},
+            atomic::{fence, AtomicBool, AtomicU8, AtomicUsize},
             Arc,
         };
     }
 
     #[cfg(not(loom))]
-    mod atomic {
-        pub use std::sync::{
-            atomic::{AtomicBool, AtomicU8, AtomicUsize},
-            Arc,
-        };
+    pub(crate) mod atomic {
+        #[cfg(not(feature = "std"))]
+        pub use alloc::{sync::Arc, vec::Vec};
+        #[cfg(feature = "std")]
+        pub use std::{sync::Arc, vec::Vec};
+
+        pub use core::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize};
     }
 
     pub(crate) use atomic::*;
@@ -175,7 +185,7 @@ where
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
             //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
             // 3. We avoid races with the writer since our `remaining` count hasn't reached zero yet
-            // 
+            //
             // Therefore we have exclusive access to `idx`
             unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
         }
@@ -210,7 +220,7 @@ struct ReaderInfo {
 }
 
 impl Debug for ReaderInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReaderInfo")
             .field("id", &self.id)
             .field(
@@ -248,5 +258,23 @@ where
             inner: UnsafeCell::new(MaybeUninit::uninit()),
             remaining: AtomicUsize::new(0),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_reader_info() {
+        let r = super::ReaderInfo {
+            waker: AtomicWaker::new(),
+            id: 0,
+            cleanup_state: AtomicU8::new(reader_cleanup::RUNNING),
+            next: AtomicUsize::new(0),
+        };
+        // ReaderInfo's Debug implementation is not currently hit. However, we want to keep the
+        // Debug implementation for future internal debugging
+        let _ = format!("{r:?}");
     }
 }

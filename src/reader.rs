@@ -27,13 +27,13 @@ where
     /// this call will complete with `Err` to indicate that no more messages can ever be
     /// received on this channel. However, since channels are buffered, messages sent before the
     /// disconnect will still be properly received.
-    pub fn recv(&mut self) -> Recv<T> {
+    pub fn recv(&mut self) -> Recv<'_, T> {
         Recv {
             inner: Pin::new(self),
         }
     }
 
-    pub fn poll_recv(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<T, RecvError>> {
+    pub fn poll_recv(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
         match self.as_mut().try_recv_inner() {
             Ok(t) => Poll::Ready(Ok(t)),
             Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError)),
@@ -118,7 +118,7 @@ where
         }
 
         // TODO: document and double check
-        std::sync::atomic::fence(Ordering::Acquire);
+        atomic::fence(Ordering::Acquire);
 
         if state == reader_cleanup::READER_CLEANUP {
             // we need to clean our own stuff - writer exited already
@@ -135,7 +135,7 @@ where
             // TODO: possible race with writer finding us, since it looks for `left_reads_count >= 1`,
             // but here we already committed to having the writer free our elements but it might not know we
             // need its help
-            dbg!(self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel));
+            self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel);
 
             // TODO: maybe wake writer? It may be able to make progress now that our elements can
             // be freed. Maybe solved with scan flag in `try_cleanup_readers`
@@ -159,7 +159,7 @@ where
 {
     type Output = Result<T, RecvError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.inner.as_mut().poll_recv(cx)
     }
 }
