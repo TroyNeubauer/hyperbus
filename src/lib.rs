@@ -260,3 +260,21 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_reader_info() {
+        let r = super::ReaderInfo {
+            waker: AtomicWaker::new(),
+            id: 0,
+            cleanup_state: AtomicU8::new(reader_cleanup::RUNNING),
+            next: AtomicUsize::new(0),
+        };
+        // ReaderInfo's Debug implementation is not currently hit. However, we want to keep the
+        // Debug implementation for future internal debugging
+        let _ = format!("{r:?}");
+    }
+}

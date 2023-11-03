@@ -280,10 +280,7 @@ where
 {
     type Output = ();
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         this.sender.as_mut().poll_broadcast(&mut this.val, cx)
     }
