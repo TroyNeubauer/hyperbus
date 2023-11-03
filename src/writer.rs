@@ -149,7 +149,9 @@ where
         while dbg!(self.shared.left_reads_count.load(Ordering::Acquire)) >= 1 || scan {
             // TODO: store id of least recently left reader as optimization to avoid scanning
             // when readers are less often than when `poll_broadcast` is called
-            let Some(left_reader_index) = self.readers.iter().position(|r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::WRITER_CLEANUP) else {
+            let Some(left_reader_index) = self.readers.iter().position(|r| {
+                r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::WRITER_CLEANUP
+            }) else {
                 if scan {
                     // no more readers to clean
                     break;
@@ -158,7 +160,9 @@ where
                     // doing a release store of WRITER_CLEANUP to `cleanup_state`,
                     // therefore if we observe `left_reads_count >=1`, there must be at least one
                     // reader whole elements can be freed
-                    unreachable!("readers_left_count non-zero, but failed to find a reader with flag set!"); 
+                    unreachable!(
+                        "readers_left_count non-zero, but failed to find a reader with flag set!"
+                    );
                 }
             };
 

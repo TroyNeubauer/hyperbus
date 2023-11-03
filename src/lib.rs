@@ -175,7 +175,7 @@ where
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
             //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
             // 3. We avoid races with the writer since our `remaining` count hasn't reached zero yet
-            // 
+            //
             // Therefore we have exclusive access to `idx`
             unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
         }

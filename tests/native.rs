@@ -1,8 +1,8 @@
 //! Non miri, non loom tests
 #![cfg(all(not(loom), not(miri)))]
 
-pub use hyperbus::prelude::*;
 use futures::StreamExt;
+pub use hyperbus::prelude::*;
 
 #[tokio::test]
 async fn it_streams() {
