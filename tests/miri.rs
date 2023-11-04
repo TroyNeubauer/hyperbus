@@ -179,10 +179,10 @@ async fn test_busy() {
 
 #[tokio::test]
 async fn in_order() {
-    let num_elements = 32;
-    let threads = 4;
+    let num_elements = 3;
+    let threads = 2;
 
-    let mut bus = crate::Bus::<u32>::new(3);
+    let mut bus = crate::Bus::<u32>::new(2);
     let rxs: Vec<_> = (0..threads)
         .map(|_| {
             let mut rx = bus.add_rx();

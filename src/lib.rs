@@ -155,11 +155,10 @@ where
         };
 
         // we are done with this slot
-        let prev_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
-        dbg!(prev_remaining);
+        self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
 
         if is_last {
-            println!("Waking writer");
+            //println!("Waking writer");
             // Wake waker now that remaining is zero
             self.writer_waker.wake();
         }
