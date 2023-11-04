@@ -34,14 +34,12 @@ where
     }
 
     pub fn poll_recv(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
+        // register _before_ trying to recv
+        self.info.waker.register(cx.waker());
         match self.as_mut().try_recv_inner() {
             Ok(t) => Poll::Ready(Ok(t)),
             Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError)),
-            Err(TryRecvError::Empty) => {
-                // TODO: check again? Orderings here and spurious wakeups
-                self.info.waker.register(cx.waker());
-                Poll::Pending
-            }
+            Err(TryRecvError::Empty) => Poll::Pending,
         }
     }
 

@@ -177,6 +177,35 @@ async fn test_busy() {
     t2.await.unwrap();
 }
 
+#[tokio::test]
+async fn in_order() {
+    let num_elements = 32;
+    let threads = 4;
+
+    let mut bus = crate::Bus::<u32>::new(3);
+    let rxs: Vec<_> = (0..threads)
+        .map(|_| {
+            let mut rx = bus.add_rx();
+            std::thread::spawn(move || {
+                futures::executor::block_on(async move {
+                    for i in 0..num_elements {
+                        let val = rx.recv().await.unwrap();
+                        assert_eq!(val, i as u32);
+                    }
+                });
+            })
+        })
+        .collect();
+
+    for i in 0..num_elements {
+        bus.broadcast(i as u32).await;
+        if i % 1_000_00 == 0 {
+            println!("{i}");
+        }
+    }
+    rxs.into_iter().for_each(|t| t.join().unwrap());
+}
+
 pub struct CountShallowDrops(Arc<AtomicUsize>);
 
 impl Clone for CountShallowDrops {

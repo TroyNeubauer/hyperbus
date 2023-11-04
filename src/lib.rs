@@ -73,21 +73,21 @@ where
 {
     slots: Arc<[Slot<T>]>,
 
-    /// Used to awaken the sender when it is waiting for capacity in `slots`
+    /// Used to awaken the sender when it is waiting for capacity in `slots`.
     writer_waker: AtomicWaker,
 
-    /// Location next write will happen, modulo `slots.len()`
+    /// Location next write will happen, modulo `slots.len()`.
     ///
-    /// Only modified by writer
+    /// Only modified by the writer.
     head: AtomicUsize,
 
-    /// Location of last initialized value, modulo `slots.len()`
+    /// Location of the most recently initialized element, modulo `slots.len()`.
+    /// Queue is empty when `head == tail`, as we always leave an empty slot to detect empty vs full
     ///
-    /// Modified by readers or the writer during leave cleanup
-    // TODO: do we actually need this? Is `Slot::remaining` sufficient?
+    /// Modified by readers or the writer during leave cleanup.
     tail: AtomicUsize,
 
-    /// The number of readers that have left and not been accounted for by the writer
+    /// The number of readers that have left and not been accounted for by the writer.
     left_reads_count: AtomicUsize,
 }
 
@@ -125,7 +125,9 @@ where
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
         debug_assert_ne!(remaining, 0);
 
-        let val = if remaining == 1 {
+        let is_last = remaining == 1;
+
+        let val = if is_last {
             // last one!
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
             debug_assert_eq!(old_tail_idx, idx);
@@ -153,7 +155,14 @@ where
         };
 
         // we are done with this slot
-        self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+        let prev_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+        dbg!(prev_remaining);
+
+        if is_last {
+            println!("Waking writer");
+            // Wake waker now that remaining is zero
+            self.writer_waker.wake();
+        }
 
         val
     }
