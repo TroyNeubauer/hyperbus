@@ -2,7 +2,7 @@
 #![cfg(all(not(loom), not(miri)))]
 
 use futures::StreamExt;
-pub use hyperbus::prelude::*;
+pub use hyperbus::*;
 
 #[tokio::test]
 async fn it_streams() {

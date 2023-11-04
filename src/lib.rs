@@ -25,7 +25,8 @@ pub mod prelude {
 
     #[cfg(loom)]
     pub(crate) mod atomic {
-        pub use loom::sync::{
+        pub(crate) use crate::atomic_waker::AtomicWaker;
+        pub(crate) use loom::sync::{
             atomic::{fence, AtomicBool, AtomicU8, AtomicUsize},
             Arc,
         };
@@ -38,20 +39,21 @@ pub mod prelude {
         #[cfg(feature = "std")]
         pub use std::{sync::Arc, vec::Vec};
 
-        pub use core::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize};
+        pub(crate) use crate::atomic_waker::AtomicWaker;
+        pub(crate) use core::sync::atomic::{fence, AtomicU8, AtomicUsize};
     }
 
     pub(crate) use atomic::*;
 
-    pub use crate::{
-        atomic_waker::AtomicWaker,
-        reader::{BusReceiver, Recv},
-        writer::{Broadcast, Bus},
-        RecvError, TryRecvError,
-    };
+    pub use super::{Bus, BusReceiver};
 }
 
-use prelude::*;
+pub use crate::{
+    reader::{BusReceiver, Recv},
+    writer::{Broadcast, Bus},
+};
+
+pub(crate) use prelude::*;
 
 /// This enumeration is the list of the possible reasons that a try recv operation could fail
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -96,6 +98,8 @@ where
     T: Send + Clone,
 {
     pub fn new(size: usize) -> Self {
+        // Due to our fence safety semantics, we cant support Buses with 1 slot
+        assert!(size >= 2);
         let slots: Vec<_> = (0..size).map(|_| Slot::default()).collect();
 
         #[cfg(loom)]
@@ -223,7 +227,7 @@ where
         let missed_last_initally = !is_last && old_remaining == 1;
 
         if missed_last_initally {
-            //println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
+            println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
@@ -244,6 +248,11 @@ where
         }
 
         old_remaining - 1
+    }
+
+    /// Returns an estimate of the number of buffered elements
+    fn len(&self) -> usize {
+        self.head.load(Ordering::Acquire) - self.tail.load(Ordering::Acquire)
     }
 }
 

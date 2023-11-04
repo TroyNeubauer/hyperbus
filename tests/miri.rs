@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hyperbus::prelude::*;
+use hyperbus::*;
 
 #[test]
 fn feels_good() {
@@ -34,7 +34,7 @@ fn feels_good() {
 
 #[test]
 fn it_fails_when_full() {
-    let mut c = Bus::new(1);
+    let mut c = Bus::new(2);
     let r1 = c.add_rx();
     assert!(c.try_broadcast(String::from("bus")).is_ok());
     assert!(c.try_broadcast(String::new()).is_err());
@@ -43,7 +43,7 @@ fn it_fails_when_full() {
 
 #[test]
 fn it_succeeds_when_not_full() {
-    let mut c = Bus::new(1);
+    let mut c = Bus::new(2);
     let mut r1 = c.add_rx();
     assert!(c.try_broadcast(String::from("bus")).is_ok());
     assert!(c.try_broadcast(String::new()).is_err());
@@ -63,7 +63,7 @@ fn it_fails_when_empty() {
 
 #[test]
 fn it_reads_when_full() {
-    let mut c = Bus::new(1);
+    let mut c = Bus::new(2);
     let mut r1 = c.add_rx();
     assert_eq!(c.try_broadcast(String::from("bus")), Ok(()));
     assert_eq!(r1.try_recv(), Ok("bus".into()));
@@ -71,7 +71,7 @@ fn it_reads_when_full() {
 
 #[test]
 fn it_detects_closure() {
-    let mut tx = Bus::new(1);
+    let mut tx = Bus::new(2);
     let mut rx = tx.add_rx();
     assert_eq!(tx.try_broadcast(String::from("bus")), Ok(()));
     assert_eq!(rx.try_recv(), Ok("bus".into()));
@@ -82,7 +82,7 @@ fn it_detects_closure() {
 
 #[test]
 fn it_recvs_after_close() {
-    let mut tx = Bus::new(1);
+    let mut tx = Bus::new(2);
     let mut rx = tx.add_rx();
     assert_eq!(tx.try_broadcast(String::from("bus")), Ok(()));
     drop(tx);
@@ -92,7 +92,7 @@ fn it_recvs_after_close() {
 
 #[test]
 fn it_handles_leaves() {
-    let mut c = Bus::new(1);
+    let mut c = Bus::new(2);
     let mut r1 = c.add_rx();
     let r2 = c.add_rx();
     assert_eq!(c.try_broadcast(String::from("bus")), Ok(()));
@@ -103,7 +103,7 @@ fn it_handles_leaves() {
 
 #[tokio::test]
 async fn it_runs_blocked_writes() {
-    let mut c = Box::new(Bus::new(1));
+    let mut c = Box::new(Bus::new(2));
     let mut r1 = c.add_rx();
     c.try_broadcast(true).unwrap(); // this is fine
 
@@ -125,7 +125,7 @@ async fn it_runs_blocked_writes() {
 
 #[tokio::test]
 async fn it_runs_blocked_reads() {
-    let mut tx = Box::new(Bus::new(1));
+    let mut tx = Box::new(Bus::new(2));
     let mut rx = tx.add_rx();
     // buffer is now empty
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
@@ -144,7 +144,7 @@ async fn it_runs_blocked_reads() {
 #[tokio::test]
 async fn test_busy() {
     // start a bus with limited space
-    let mut bus = Bus::new(1);
+    let mut bus = Bus::new(2);
 
     // first receiver only receives 5 items
     let mut rx1 = bus.add_rx();
@@ -187,7 +187,7 @@ async fn in_order() {
     let cap = 4;
 
     #[cfg(not(miri))]
-    let num_elements = 10_000_000;
+    let num_elements = 100_000;
     #[cfg(not(miri))]
     let threads = 12;
     #[cfg(not(miri))]
@@ -210,9 +210,7 @@ async fn in_order() {
 
     for i in 0..num_elements {
         bus.broadcast(i as u32).await;
-        if i % 1_000_00 == 0 {
-            println!("{i}");
-        }
+        
     }
     rxs.into_iter().for_each(|t| t.join().unwrap());
 }

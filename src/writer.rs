@@ -14,6 +14,11 @@ impl<T> Bus<T>
 where
     T: Send + Clone,
 {
+    /// Creates a new bus with with given capacity
+    ///
+    /// # Panics
+    ///
+    /// This function panics if size is not at least two
     pub fn new(size: usize) -> Self {
         Self {
             shared: Arc::new(Shared::new(size)),
@@ -91,6 +96,7 @@ where
 
         let remaining_readers = self.shared.slots[fence].remaining.load(Ordering::Acquire);
         if remaining_readers != 0 {
+            println!("Trying to clean");
             // Fence slot still has readers waiting on it,
             // or some readers have left and we need to account for them
             self.try_cleanup_readers(Some(fence), false);
@@ -108,8 +114,16 @@ where
         #[cfg(any(debug_assertions, loom))]
         assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
 
-        // TODO: do we have to check tail? Since readers racing to take() may cause the drop to happen _after_
-        // remaining is zero. Ensuring fence is free may be sufficient
+        // Sanity check the complex argument we have in the implementation comment
+        #[cfg(any(debug_assertions, loom))]
+        {
+            let tail = self.shared.tail.load(Ordering::Acquire);
+            dbg!(self.shared.slots.len());
+            if dbg!(head) != dbg!(tail) {
+                // if not empty...
+                assert_ne!(idx, tail % self.shared.slots.len());
+            }
+        }
 
         // SAFETY:
         // `remaining` is 0 for the fence slot, therefore we have exclusive access because all
@@ -171,7 +185,7 @@ where
                 }
             };
 
-            let info = self.readers.remove(left_reader_index);
+            let info = self.readers.swap_remove(left_reader_index);
 
             // The release store(WRITER_CLEANUP) to `cleanup_state` happens after the release store to `next`
             // Because `cleanup_state` is not reused after being set by a leaving reader we are
@@ -184,11 +198,12 @@ where
             // We already removed from `self.readers`, so all future slots' `remaining` count
             // will be correct.
             // Also because we have exclusive access to self and there is only
-            // one reader, there is no race possible between head and `readers.len()`
+            // one writer, there is no race possible between head and `readers.len()`
 
             let mut fence_ready = false;
             for i in reader_tail..reader_head {
                 let idx = i % self.shared.slots.len();
+                println!("Writer cleaning {i}");
                 // SAFETY:
                 // TODO
                 let readers_remaining = unsafe { self.shared.cleanup(idx) };
@@ -212,6 +227,11 @@ where
                 break;
             }
         }
+    }
+
+    /// Returns an estimate of the number of buffered elements
+    pub fn len(&self) -> usize {
+        self.shared.len()
     }
 }
 

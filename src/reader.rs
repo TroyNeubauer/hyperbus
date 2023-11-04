@@ -74,6 +74,12 @@ where
     pub fn leave(self) {
         // Drop impl handles cleanup
     }
+
+
+    /// Returns an estimate of the number of buffered elements
+    pub fn len(&self) -> usize {
+        self.shared.len()
+    }
 }
 
 impl<T> futures_core::Stream for BusReceiver<T>
@@ -100,7 +106,10 @@ where
 
         let mut state = self.info.cleanup_state.load(Ordering::Acquire);
 
+        // Negotiate with writer on who will clean our elements
+        // Need to prevent the writer's drop from racing with our drop
         while state == reader_cleanup::RUNNING {
+            // Try to make the writer cleanup after us so we can exit quickly
             match self.info.cleanup_state.compare_exchange_weak(
                 state,
                 reader_cleanup::WRITER_CLEANUP,
@@ -124,6 +133,7 @@ where
 
             for i in tail..head {
                 let idx = i % self.shared.slots.len();
+                println!("Reader cleaning {i}");
                 // SAFETY:
                 // TODO
                 unsafe { self.shared.cleanup(idx) };
@@ -131,7 +141,7 @@ where
         } else if state == reader_cleanup::WRITER_CLEANUP {
             // TODO: possible race with writer finding us, since it looks for `left_reads_count >= 1`,
             // but here we already committed to having the writer free our elements but it might not know we
-            // need its help
+            // need its help. We use this as a hint in the writer so it should be fine
             self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel);
 
             // TODO: maybe wake writer? It may be able to make progress now that our elements can
