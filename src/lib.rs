@@ -73,7 +73,7 @@ where
 {
     slots: Arc<[Slot<T>]>,
 
-    /// Used to awaken the sender when it is waiting for capacity in `slots`.
+    /// Used to awaken the writer when it is waiting for capacity in `slots`.
     writer_waker: AtomicWaker,
 
     /// Location next write will happen, modulo `slots.len()`.
@@ -128,12 +128,7 @@ where
         let is_last = remaining == 1;
 
         let val = if is_last {
-            // last one!
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
-
-            self.writer_waker.wake();
-
+            println!("Last reader to take() element at index {idx}");
             // SAFETY:
             // By our contract, this function is only called once per reader and each reader has
             // permission to read from this slot (each reader was accounted for when
@@ -154,10 +149,31 @@ where
             Clone::clone(unsafe { val.assume_init_ref() })
         };
 
-        // we are done with this slot
-        self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+        // We are done with this slot
+        let old_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
 
-        if is_last {
+        let missed_last_initally = !is_last && old_remaining == 1;
+        // Its possible for multiple readers to race on `remaining.fetch_sub(1)`, observing
+        // `remaining > 1` and `is_last == false` even if we are the last to take `idx`
+        // When this is the case, we have to drop the element in the buffer in addition to normal
+        // last cleanup below
+        if missed_last_initally {
+            println!("take({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
+
+            // SAFETY:
+            // 1. By our contract, `idx` is in the read section
+            // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
+            //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
+            // 3. We avoid races with the writer since tail hasn't been incremented yet
+            //
+            // Therefore we have exclusive access to `idx`
+            unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
+        }
+
+        if is_last || missed_last_initally {
+            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+            debug_assert_eq!(old_tail_idx, idx);
+
             //println!("Waking writer");
             // Wake waker now that remaining is zero
             self.writer_waker.wake();
@@ -183,11 +199,8 @@ where
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
         debug_assert_ne!(remaining, 0, "not already freed");
 
-        if remaining == 1 {
-            // last one!
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
-
+        let is_last = remaining == 1;
+        if is_last {
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
@@ -200,6 +213,27 @@ where
 
         // we are done with this slot
         let old_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+
+        let missed_last_initally = !is_last && old_remaining == 1;
+
+        if missed_last_initally {
+            println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
+
+            // SAFETY:
+            // 1. By our contract, `idx` is in the read section
+            // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
+            //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
+            // 3. We avoid races with the writer since tail hasn't been incremented yet
+            //
+            // Therefore we have exclusive access to `idx`
+            unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
+        }
+
+        if is_last || missed_last_initally {
+            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+            debug_assert_eq!(old_tail_idx, idx);
+        }
+
         old_remaining - 1
     }
 }

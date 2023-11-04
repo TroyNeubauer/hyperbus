@@ -116,7 +116,7 @@ async fn it_runs_blocked_writes() {
         c.broadcast(false).await;
     });
 
-    // unblock sender by receiving
+    // unblock writer by receiving
     assert_eq!(r1.recv().await, Ok(true));
     // drop r1 to release other thread and safely drop c
     drop(r1);
@@ -179,10 +179,10 @@ async fn test_busy() {
 
 #[tokio::test]
 async fn in_order() {
-    let num_elements = 3;
-    let threads = 2;
+    let num_elements = 1000;
+    let threads = 10;
 
-    let mut bus = crate::Bus::<u32>::new(2);
+    let mut bus = crate::Bus::<u32>::new(4);
     let rxs: Vec<_> = (0..threads)
         .map(|_| {
             let mut rx = bus.add_rx();

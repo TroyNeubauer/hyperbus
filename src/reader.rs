@@ -55,7 +55,6 @@ where
             if Arc::strong_count(&self.info) == 1 {
                 return Err(TryRecvError::Disconnected);
             } else {
-                // TODO: make sure we don't race with the writer being dropped here, miss a wakeup and hang
                 return Err(TryRecvError::Empty);
             }
         }

@@ -83,7 +83,6 @@ where
     /// This function panics if `val` is `None`
     fn try_broadcast_inner(mut self: Pin<&mut Self>, val: &mut Option<T>) -> Result<(), ()> {
         let head = self.shared.head.load(Ordering::Acquire);
-
         // we want to check if the next element over is free to ensure that we always leave one
         // empty space between the head and the tail. This is necessary so that readers can
         // distinguish between an empty and a full list. If the fence seat is free, the seat at
@@ -107,9 +106,12 @@ where
         let idx = head % self.shared.slots.len();
         debug_assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
 
+        // TODO: Check tail, since readers racing to take() may cause the drop to happen _after_
+        // remaining is zero. TODO: replicate with test
+
         // SAFETY:
         // `remaining` is 0 for the fence slot, therefore we have exclusive access because all
-        // readers have finished reading this slot
+        // readers have finished reading this slot and we are the only writer
         unsafe { &mut *self.shared.slots[idx].inner.get() }.write(val.take().unwrap());
 
         self.shared.slots[idx]
@@ -272,7 +274,7 @@ where
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-        this.sender.as_mut().poll_broadcast(&mut this.val, cx)
+        let this = self.project();
+        this.sender.as_mut().poll_broadcast(this.val, cx)
     }
 }
