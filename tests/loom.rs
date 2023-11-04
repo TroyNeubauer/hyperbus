@@ -111,8 +111,9 @@ fn leave2() {
         t2.join().unwrap();
 
         assert_eq!(ndrops0.load(Ordering::Acquire), 1);
-        // value received on two threads and dropped twice (after clone)
-        assert_eq!(ndrops1.load(Ordering::Acquire), 2);
+        // value received on two threads and dropped twice (after clone), or more than twice due to
+        // semantics of take
+        assert!(ndrops1.load(Ordering::Acquire) >= 2);
     });
 }
 

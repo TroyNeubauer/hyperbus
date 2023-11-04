@@ -81,7 +81,7 @@ where
     /// Only modified by the writer.
     head: AtomicUsize,
 
-    /// Location of the most recently initialized element, modulo `slots.len()`.
+    /// Index of the oldest element, modulo `slots.len()`, when list is not empty.
     /// Queue is empty when `head == tail`, as we always leave an empty slot to detect empty vs full
     ///
     /// Modified by readers or the writer during leave cleanup.
@@ -123,12 +123,14 @@ where
     /// 2. `remove(idx)` must only be called once per reader for a particular location
     unsafe fn take(&self, idx: usize) -> T {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        debug_assert_ne!(remaining, 0);
+
+        #[cfg(any(debug_assertions, loom))]
+        assert_ne!(remaining, 0);
 
         let is_last = remaining == 1;
 
         let val = if is_last {
-            println!("Last reader to take() element at index {idx}");
+            //println!("Last reader to take() element at index {idx}");
             // SAFETY:
             // By our contract, this function is only called once per reader and each reader has
             // permission to read from this slot (each reader was accounted for when
@@ -154,11 +156,12 @@ where
 
         let missed_last_initally = !is_last && old_remaining == 1;
         // Its possible for multiple readers to race on `remaining.fetch_sub(1)`, observing
-        // `remaining > 1` and `is_last == false` even if we are the last to take `idx`
-        // When this is the case, we have to drop the element in the buffer in addition to normal
-        // last cleanup below
+        // `remaining > 1` and `is_last == false` above, even if we are the last to take `idx`
+        //
+        // When this is the case, we have to drop the element in the buffer since we already cloned
+        // it into `val`, in addition to incrementing tail and waking the writer
         if missed_last_initally {
-            println!("take({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
+            //println!("take({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
@@ -172,9 +175,10 @@ where
 
         if is_last || missed_last_initally {
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
+            #[cfg(any(debug_assertions, loom))]
+            assert_eq!(old_tail_idx, idx);
+            let _ = old_tail_idx;
 
-            //println!("Waking writer");
             // Wake waker now that remaining is zero
             self.writer_waker.wake();
         }
@@ -197,7 +201,9 @@ where
     ///    of readers that existed when slot `idx` was initialized
     unsafe fn cleanup(&self, idx: usize) -> usize {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        debug_assert_ne!(remaining, 0, "not already freed");
+
+        #[cfg(any(debug_assertions, loom))]
+        assert_ne!(remaining, 0, "not already freed");
 
         let is_last = remaining == 1;
         if is_last {
@@ -217,7 +223,7 @@ where
         let missed_last_initally = !is_last && old_remaining == 1;
 
         if missed_last_initally {
-            println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
+            //println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
@@ -231,7 +237,10 @@ where
 
         if is_last || missed_last_initally {
             let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
+
+            #[cfg(any(debug_assertions, loom))]
+            assert_eq!(old_tail_idx, idx);
+            let _ = old_tail_idx;
         }
 
         old_remaining - 1

@@ -59,7 +59,7 @@ where
             }
         }
 
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, loom))]
         {
             let tail = self.shared.tail.load(Ordering::Acquire);
             assert!(self.next >= tail);

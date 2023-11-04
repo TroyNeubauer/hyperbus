@@ -85,7 +85,7 @@ where
         let head = self.shared.head.load(Ordering::Acquire);
         // we want to check if the next element over is free to ensure that we always leave one
         // empty space between the head and the tail. This is necessary so that readers can
-        // distinguish between an empty and a full list. If the fence seat is free, the seat at
+        // distinguish between an empty and a full list. If the fence slot is free, the slot at
         // tail must also be free
         let fence = (head + 1) % self.shared.slots.len();
 
@@ -104,10 +104,12 @@ where
 
         // `idx` is free!
         let idx = head % self.shared.slots.len();
-        debug_assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
 
-        // TODO: Check tail, since readers racing to take() may cause the drop to happen _after_
-        // remaining is zero. TODO: replicate with test
+        #[cfg(any(debug_assertions, loom))]
+        assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
+
+        // TODO: do we have to check tail? Since readers racing to take() may cause the drop to happen _after_
+        // remaining is zero. Ensuring fence is free may be sufficient
 
         // SAFETY:
         // `remaining` is 0 for the fence slot, therefore we have exclusive access because all
@@ -247,7 +249,7 @@ where
         self.try_cleanup_readers(None, true);
 
         // Sanity check that the remaining readers are responsible for cleaning up after themselves
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, loom))]
         {
             for r in &self.readers {
                 let state = r.cleanup_state.load(Ordering::Acquire);
