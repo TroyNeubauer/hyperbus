@@ -13,7 +13,7 @@ futures-core = { version = "0.3.28", default-features = false }
 pin-project = "1.1.2"
 
 [target.'cfg(loom)'.dependencies]
-loom = { version = "0.5", features = ["futures"] }
+loom = { version = "0.7", features = ["futures"] }
 
 [target.'cfg(not(loom))'.dependencies]
 atomic-waker = "1.1.1"
