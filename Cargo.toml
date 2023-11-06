@@ -23,6 +23,10 @@ crossbeam-channel = "0.5.8"
 futures = "0.3.28"
 multiqueue = "0.3.2"
 
+# For profiling
+[profile.release]
+debug = true
+
 [[bench]]
 name = "basic"
 harness = false
