@@ -2,7 +2,7 @@
 //! This wrapper type bridges the gap
 use crate::prelude::*;
 
-pub struct AtomicWaker {
+pub(crate) struct AtomicWaker {
     #[cfg(not(any(loom, doc)))]
     inner: atomic_waker::AtomicWaker,
     #[cfg(all(loom, not(doc)))]

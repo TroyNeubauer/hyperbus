@@ -14,6 +14,11 @@ impl<T> Bus<T>
 where
     T: Send + Clone,
 {
+    /// Creates a new bus with with given capacity
+    ///
+    /// # Panics
+    ///
+    /// This function panics if size is not at least two
     pub fn new(size: usize) -> Self {
         Self {
             shared: Arc::new(Shared::new(size)),
@@ -59,6 +64,10 @@ where
         val: &mut Option<T>,
         cx: &mut Context<'_>,
     ) -> Poll<()> {
+        // register before trying to send to avoid a race between the broadcast failing, and a
+        // reader waking us racing with us calling register
+        self.shared.writer_waker.register(cx.waker());
+
         match self.as_mut().try_broadcast_inner(val) {
             Ok(()) => {
                 // TODO: optimize?
@@ -67,11 +76,7 @@ where
                 }
                 Poll::Ready(())
             }
-
-            Err(()) => {
-                self.shared.writer_waker.register(cx.waker());
-                Poll::Pending
-            }
+            Err(()) => Poll::Pending,
         }
     }
 
@@ -82,11 +87,15 @@ where
     /// # Panics
     /// This function panics if `val` is `None`
     fn try_broadcast_inner(mut self: Pin<&mut Self>, val: &mut Option<T>) -> Result<(), ()> {
-        let head = self.shared.head.load(Ordering::Acquire);
+        if self.readers.is_empty() {
+            // No point in writing since there is no reader which can read
+            return Ok(());
+        }
 
+        let head = self.shared.head.load(Ordering::Acquire);
         // we want to check if the next element over is free to ensure that we always leave one
         // empty space between the head and the tail. This is necessary so that readers can
-        // distinguish between an empty and a full list. If the fence seat is free, the seat at
+        // distinguish between an empty and a full list. If the fence slot is free, the slot at
         // tail must also be free
         let fence = (head + 1) % self.shared.slots.len();
 
@@ -96,7 +105,8 @@ where
             // or some readers have left and we need to account for them
             self.try_cleanup_readers(Some(fence), false);
 
-            if self.shared.slots[fence].remaining.load(Ordering::Acquire) != 0 {
+            let remaining_readers = self.shared.slots[fence].remaining.load(Ordering::Acquire);
+            if remaining_readers != 0 {
                 // Slot still taken after trying cleanup (full)
                 return Err(());
             }
@@ -104,11 +114,23 @@ where
 
         // `idx` is free!
         let idx = head % self.shared.slots.len();
-        debug_assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
+
+        #[cfg(any(debug_assertions, loom))]
+        assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
+
+        // Sanity check the complex argument we have in the implementation comment
+        #[cfg(any(debug_assertions, loom))]
+        {
+            let tail = self.shared.tail.load(Ordering::Acquire);
+            if head != tail {
+                // if not empty...
+                assert_ne!(idx, tail % self.shared.slots.len());
+            }
+        }
 
         // SAFETY:
         // `remaining` is 0 for the fence slot, therefore we have exclusive access because all
-        // readers have finished reading this slot
+        // readers have finished reading this slot and we are the only writer
         unsafe { &mut *self.shared.slots[idx].inner.get() }.write(val.take().unwrap());
 
         self.shared.slots[idx]
@@ -166,10 +188,10 @@ where
                 }
             };
 
-            let info = self.readers.remove(left_reader_index);
+            let info = self.readers.swap_remove(left_reader_index);
 
-            // The release store(true) to `has_left` happens after the release store to `left_with_next`
-            // Because `has_left` is not reused after being set by a leaving reader we are
+            // The release store(WRITER_CLEANUP) to `cleanup_state` happens after the release store to `next`
+            // Because `cleanup_state` is not reused after being set by a leaving reader we are
             // seeing the reader's next value at the time it left
             let reader_tail = info.next.load(Ordering::Acquire);
             let reader_head = self.shared.head.load(Ordering::Acquire);
@@ -179,7 +201,7 @@ where
             // We already removed from `self.readers`, so all future slots' `remaining` count
             // will be correct.
             // Also because we have exclusive access to self and there is only
-            // one reader, there is no race possible between head and `readers.len()`
+            // one writer, there is no race possible between head and `readers.len()`
 
             let mut fence_ready = false;
             for i in reader_tail..reader_head {
@@ -207,6 +229,11 @@ where
                 break;
             }
         }
+    }
+
+    /// Returns an estimate of the number of buffered elements
+    pub fn len(&self) -> usize {
+        self.shared.len()
     }
 }
 
@@ -243,24 +270,14 @@ where
 
         self.try_cleanup_readers(None, true);
 
-        // the only remaining readers are responsible for cleaning up after themselves
-        debug_assert_eq!(
-            self.readers
-                .iter()
-                .filter(|r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::RUNNING)
-                .count(),
-            0
-        );
-
-        debug_assert_eq!(
-            self.readers
-                .iter()
-                .filter(
-                    |r| r.cleanup_state.load(Ordering::Acquire) == reader_cleanup::WRITER_CLEANUP
-                )
-                .count(),
-            0
-        );
+        // Sanity check that the remaining readers are responsible for cleaning up after themselves
+        #[cfg(any(debug_assertions, loom))]
+        {
+            for r in &self.readers {
+                let state = r.cleanup_state.load(Ordering::Acquire);
+                assert!(state == reader_cleanup::READER_CLEANUP);
+            }
+        }
     }
 }
 
@@ -281,7 +298,7 @@ where
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-        this.sender.as_mut().poll_broadcast(&mut this.val, cx)
+        let this = self.project();
+        this.sender.as_mut().poll_broadcast(this.val, cx)
     }
 }

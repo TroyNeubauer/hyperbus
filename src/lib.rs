@@ -25,8 +25,9 @@ pub mod prelude {
 
     #[cfg(loom)]
     pub(crate) mod atomic {
-        pub use loom::sync::{
-            atomic::{fence, AtomicBool, AtomicU8, AtomicUsize},
+        pub(crate) use crate::atomic_waker::AtomicWaker;
+        pub(crate) use loom::sync::{
+            atomic::{fence, AtomicU8, AtomicUsize},
             Arc,
         };
     }
@@ -38,20 +39,21 @@ pub mod prelude {
         #[cfg(feature = "std")]
         pub use std::{sync::Arc, vec::Vec};
 
-        pub use core::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize};
+        pub(crate) use crate::atomic_waker::AtomicWaker;
+        pub(crate) use core::sync::atomic::{fence, AtomicU8, AtomicUsize};
     }
 
     pub(crate) use atomic::*;
 
-    pub use crate::{
-        atomic_waker::AtomicWaker,
-        reader::{BusReceiver, Recv},
-        writer::{Broadcast, Bus},
-        RecvError, TryRecvError,
-    };
+    pub use super::{Bus, BusReceiver};
 }
 
-use prelude::*;
+pub use crate::{
+    reader::{BusReceiver, Recv},
+    writer::{Broadcast, Bus},
+};
+
+pub(crate) use prelude::*;
 
 /// This enumeration is the list of the possible reasons that a try recv operation could fail
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -73,21 +75,21 @@ where
 {
     slots: Arc<[Slot<T>]>,
 
-    /// Used to awaken the sender when it is waiting for capacity in `slots`
+    /// Used to awaken the writer when it is waiting for capacity in `slots`.
     writer_waker: AtomicWaker,
 
-    /// Location next write will happen, modulo `slots.len()`
+    /// Location next write will happen, modulo `slots.len()`.
     ///
-    /// Only modified by writer
+    /// Only modified by the writer.
     head: AtomicUsize,
 
-    /// Location of last initialized value, modulo `slots.len()`
+    /// Index of the oldest element, modulo `slots.len()`, when list is not empty.
+    /// Queue is empty when `head == tail`, as we always leave an empty slot to detect empty vs full
     ///
-    /// Modified by readers or the writer during leave cleanup
-    // TODO: do we actually need this? Is `Slot::remaining` sufficient?
+    /// Modified by readers or the writer during leave cleanup.
     tail: AtomicUsize,
 
-    /// The number of readers that have left and not been accounted for by the writer
+    /// The number of readers that have left and not been accounted for by the writer.
     left_reads_count: AtomicUsize,
 }
 
@@ -96,6 +98,8 @@ where
     T: Send + Clone,
 {
     pub fn new(size: usize) -> Self {
+        // Due to our fence safety semantics, we cant support Buses with 1 slot
+        assert!(size >= 2);
         let slots: Vec<_> = (0..size).map(|_| Slot::default()).collect();
 
         #[cfg(loom)]
@@ -123,15 +127,13 @@ where
     /// 2. `remove(idx)` must only be called once per reader for a particular location
     unsafe fn take(&self, idx: usize) -> T {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        debug_assert_ne!(remaining, 0);
 
-        let val = if remaining == 1 {
-            // last one!
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
+        #[cfg(any(debug_assertions, loom))]
+        assert_ne!(remaining, 0);
 
-            self.writer_waker.wake();
+        let is_last = remaining == 1;
 
+        let val = if is_last {
             // SAFETY:
             // By our contract, this function is only called once per reader and each reader has
             // permission to read from this slot (each reader was accounted for when
@@ -152,8 +154,35 @@ where
             Clone::clone(unsafe { val.assume_init_ref() })
         };
 
-        // we are done with this slot
-        self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+        // We are done with this slot
+        let old_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+
+        let missed_last_initally = !is_last && old_remaining == 1;
+        // Its possible for multiple readers to race on `remaining.fetch_sub(1)`, observing
+        // `remaining > 1` and `is_last == false` above, even if we are the last to take `idx`
+        //
+        // When this is the case, we have to drop the element in the buffer since we already cloned
+        // it into `val`, in addition to incrementing tail and waking the writer
+        if missed_last_initally {
+            // SAFETY:
+            // 1. By our contract, `idx` is in the read section
+            // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
+            //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
+            // 3. We avoid races with the writer since tail hasn't been incremented yet
+            //
+            // Therefore we have exclusive access to `idx`
+            unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
+        }
+
+        if is_last || missed_last_initally {
+            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+            #[cfg(any(debug_assertions, loom))]
+            assert_eq!(old_tail_idx, idx);
+            let _ = old_tail_idx;
+
+            // Wake waker now that remaining is zero
+            self.writer_waker.wake();
+        }
 
         val
     }
@@ -173,13 +202,12 @@ where
     ///    of readers that existed when slot `idx` was initialized
     unsafe fn cleanup(&self, idx: usize) -> usize {
         let remaining = self.slots[idx].remaining.load(Ordering::Acquire);
-        debug_assert_ne!(remaining, 0, "not already freed");
 
-        if remaining == 1 {
-            // last one!
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
-            debug_assert_eq!(old_tail_idx, idx);
+        #[cfg(any(debug_assertions, loom))]
+        assert_ne!(remaining, 0, "not already freed");
 
+        let is_last = remaining == 1;
+        if is_last {
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
@@ -192,7 +220,34 @@ where
 
         // we are done with this slot
         let old_remaining = self.slots[idx].remaining.fetch_sub(1, Ordering::AcqRel);
+
+        let missed_last_initally = !is_last && old_remaining == 1;
+
+        if missed_last_initally {
+            // SAFETY:
+            // 1. By our contract, `idx` is in the read section
+            // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
+            //    and no more calls to `cleanup` or `take` on the same index are possible due to our contract
+            // 3. We avoid races with the writer since tail hasn't been incremented yet
+            //
+            // Therefore we have exclusive access to `idx`
+            unsafe { ptr::drop_in_place(self.slots[idx].inner.get() as *mut T) }
+        }
+
+        if is_last || missed_last_initally {
+            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+
+            #[cfg(any(debug_assertions, loom))]
+            assert_eq!(old_tail_idx, idx);
+            let _ = old_tail_idx;
+        }
+
         old_remaining - 1
+    }
+
+    /// Returns an estimate of the number of buffered elements
+    fn len(&self) -> usize {
+        self.head.load(Ordering::Acquire) - self.tail.load(Ordering::Acquire)
     }
 }
 

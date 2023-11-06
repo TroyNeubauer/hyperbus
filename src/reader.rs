@@ -34,14 +34,12 @@ where
     }
 
     pub fn poll_recv(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
+        // register _before_ trying to recv
+        self.info.waker.register(cx.waker());
         match self.as_mut().try_recv_inner() {
             Ok(t) => Poll::Ready(Ok(t)),
             Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError)),
-            Err(TryRecvError::Empty) => {
-                // TODO: check again? Orderings here and spurious wakeups
-                self.info.waker.register(cx.waker());
-                Poll::Pending
-            }
+            Err(TryRecvError::Empty) => Poll::Pending,
         }
     }
 
@@ -57,17 +55,17 @@ where
             if Arc::strong_count(&self.info) == 1 {
                 return Err(TryRecvError::Disconnected);
             } else {
-                // TODO: make sure we don't race with the writer being dropped here, miss a wakeup and hang
                 return Err(TryRecvError::Empty);
             }
         }
 
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, loom))]
         {
             let tail = self.shared.tail.load(Ordering::Acquire);
             assert!(self.next >= tail);
         }
         let idx = self.next % self.shared.slots.len();
+
         let v = unsafe { self.shared.take(idx) };
         self.next += 1;
 
@@ -76,6 +74,11 @@ where
 
     pub fn leave(self) {
         // Drop impl handles cleanup
+    }
+
+    /// Returns an estimate of the number of buffered elements
+    pub fn len(&self) -> usize {
+        self.shared.len()
     }
 }
 
@@ -103,7 +106,10 @@ where
 
         let mut state = self.info.cleanup_state.load(Ordering::Acquire);
 
+        // Negotiate with writer on who will clean our elements
+        // Need to prevent the writer's drop from racing with our drop
         while state == reader_cleanup::RUNNING {
+            // Try to make the writer cleanup after us so we can exit quickly
             match self.info.cleanup_state.compare_exchange_weak(
                 state,
                 reader_cleanup::WRITER_CLEANUP,
@@ -134,7 +140,7 @@ where
         } else if state == reader_cleanup::WRITER_CLEANUP {
             // TODO: possible race with writer finding us, since it looks for `left_reads_count >= 1`,
             // but here we already committed to having the writer free our elements but it might not know we
-            // need its help
+            // need its help. We use this as a hint in the writer so it should be fine
             self.shared.left_reads_count.fetch_add(1, Ordering::AcqRel);
 
             // TODO: maybe wake writer? It may be able to make progress now that our elements can
