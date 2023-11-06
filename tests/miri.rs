@@ -212,7 +212,6 @@ async fn in_order() {
 
     for i in 0..num_elements {
         bus.broadcast(i as u32).await;
-        
     }
     rxs.into_iter().for_each(|t| t.join().unwrap());
 }

@@ -164,7 +164,6 @@ where
         // When this is the case, we have to drop the element in the buffer since we already cloned
         // it into `val`, in addition to incrementing tail and waking the writer
         if missed_last_initally {
-
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
@@ -225,7 +224,6 @@ where
         let missed_last_initally = !is_last && old_remaining == 1;
 
         if missed_last_initally {
-
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
             // 2. This is the last time `idx` will be accessed because we observed `remaining == 1`
