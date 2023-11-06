@@ -144,7 +144,7 @@ async fn it_runs_blocked_reads() {
 #[tokio::test]
 async fn test_busy() {
     // start a bus with limited space
-    let mut bus = Bus::new(2);
+    let mut bus = Bus::new(3);
 
     // first receiver only receives 5 items
     let mut rx1 = bus.add_rx();
@@ -152,6 +152,7 @@ async fn test_busy() {
         for _ in 0..5 {
             rx1.recv().await.unwrap();
         }
+        println!("Dropping reader 1");
         drop(rx1);
     });
 
@@ -161,6 +162,7 @@ async fn test_busy() {
         for _ in 0..10 {
             rx2.recv().await.unwrap();
         }
+        println!("Dropping reader 2");
         drop(rx2);
     });
 

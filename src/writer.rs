@@ -87,6 +87,11 @@ where
     /// # Panics
     /// This function panics if `val` is `None`
     fn try_broadcast_inner(mut self: Pin<&mut Self>, val: &mut Option<T>) -> Result<(), ()> {
+        if self.readers.is_empty() {
+            // No point in writing since there is no reader which can read
+            return Ok(());
+        }
+
         let head = self.shared.head.load(Ordering::Acquire);
         // we want to check if the next element over is free to ensure that we always leave one
         // empty space between the head and the tail. This is necessary so that readers can
@@ -96,7 +101,6 @@ where
 
         let remaining_readers = self.shared.slots[fence].remaining.load(Ordering::Acquire);
         if remaining_readers != 0 {
-            println!("Trying to clean");
             // Fence slot still has readers waiting on it,
             // or some readers have left and we need to account for them
             self.try_cleanup_readers(Some(fence), false);
@@ -118,8 +122,7 @@ where
         #[cfg(any(debug_assertions, loom))]
         {
             let tail = self.shared.tail.load(Ordering::Acquire);
-            dbg!(self.shared.slots.len());
-            if dbg!(head) != dbg!(tail) {
+            if head != tail {
                 // if not empty...
                 assert_ne!(idx, tail % self.shared.slots.len());
             }
@@ -203,7 +206,6 @@ where
             let mut fence_ready = false;
             for i in reader_tail..reader_head {
                 let idx = i % self.shared.slots.len();
-                println!("Writer cleaning {i}");
                 // SAFETY:
                 // TODO
                 let readers_remaining = unsafe { self.shared.cleanup(idx) };

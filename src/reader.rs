@@ -65,6 +65,7 @@ where
             assert!(self.next >= tail);
         }
         let idx = self.next % self.shared.slots.len();
+
         let v = unsafe { self.shared.take(idx) };
         self.next += 1;
 
@@ -74,7 +75,6 @@ where
     pub fn leave(self) {
         // Drop impl handles cleanup
     }
-
 
     /// Returns an estimate of the number of buffered elements
     pub fn len(&self) -> usize {
@@ -133,7 +133,6 @@ where
 
             for i in tail..head {
                 let idx = i % self.shared.slots.len();
-                println!("Reader cleaning {i}");
                 // SAFETY:
                 // TODO
                 unsafe { self.shared.cleanup(idx) };

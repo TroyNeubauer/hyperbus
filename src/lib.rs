@@ -27,7 +27,7 @@ pub mod prelude {
     pub(crate) mod atomic {
         pub(crate) use crate::atomic_waker::AtomicWaker;
         pub(crate) use loom::sync::{
-            atomic::{fence, AtomicBool, AtomicU8, AtomicUsize},
+            atomic::{fence, AtomicU8, AtomicUsize},
             Arc,
         };
     }
@@ -134,7 +134,6 @@ where
         let is_last = remaining == 1;
 
         let val = if is_last {
-            //println!("Last reader to take() element at index {idx}");
             // SAFETY:
             // By our contract, this function is only called once per reader and each reader has
             // permission to read from this slot (each reader was accounted for when
@@ -165,7 +164,6 @@ where
         // When this is the case, we have to drop the element in the buffer since we already cloned
         // it into `val`, in addition to incrementing tail and waking the writer
         if missed_last_initally {
-            //println!("take({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
@@ -227,7 +225,6 @@ where
         let missed_last_initally = !is_last && old_remaining == 1;
 
         if missed_last_initally {
-            println!("cleanup({idx}): Read {remaining} initially but was {old_remaining} before decrementing remaining for index {idx}");
 
             // SAFETY:
             // 1. By our contract, `idx` is in the read section
