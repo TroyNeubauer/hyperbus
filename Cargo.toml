@@ -18,7 +18,14 @@ loom = { version = "0.7", features = ["futures"] }
 atomic-waker = "1.1.1"
 
 [dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+crossbeam-channel = "0.5.8"
 futures = "0.3.28"
+multiqueue = "0.3.2"
+
+[[bench]]
+name = "basic"
+harness = false
 
 [target.'cfg(not(loom))'.dev-dependencies]
-tokio = { version = "1.29.1", default-features = false, features = ["rt", "time", "macros"] }
+tokio = { version = "1.33.0", default-features = false, features = ["rt", "time", "macros", "sync"] }
