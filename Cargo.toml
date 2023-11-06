@@ -8,6 +8,7 @@ default = ["std"]
 std = ["futures-core/std"]
 
 [dependencies]
+crossbeam-utils = { version = "0.8.16", default-features = false }
 futures-core = { version = "0.3.28", default-features = false }
 pin-project = "1.1.2"
 

@@ -64,7 +64,7 @@ where
             let tail = self.shared.tail.load(Ordering::Acquire);
             assert!(self.next >= tail);
         }
-        let idx = self.next % self.shared.slots.len();
+        let idx = self.shared.location_to_index(self.next);
 
         let v = unsafe { self.shared.take(idx) };
         self.next += 1;
@@ -132,7 +132,7 @@ where
             let tail = self.next;
 
             for i in tail..head {
-                let idx = i % self.shared.slots.len();
+                let idx = self.shared.location_to_index(i);
                 // SAFETY:
                 // TODO
                 unsafe { self.shared.cleanup(idx) };

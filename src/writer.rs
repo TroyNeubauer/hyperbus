@@ -97,7 +97,7 @@ where
         // empty space between the head and the tail. This is necessary so that readers can
         // distinguish between an empty and a full list. If the fence slot is free, the slot at
         // tail must also be free
-        let fence = (head + 1) % self.shared.slots.len();
+        let fence = self.shared.location_to_index(head + 1);
 
         let remaining_readers = self.shared.slots[fence].remaining.load(Ordering::Acquire);
         if remaining_readers != 0 {
@@ -113,7 +113,7 @@ where
         }
 
         // `idx` is free!
-        let idx = head % self.shared.slots.len();
+        let idx = self.shared.location_to_index(head);
 
         #[cfg(any(debug_assertions, loom))]
         assert_eq!(self.shared.slots[idx].remaining.load(Ordering::Acquire), 0);
@@ -124,7 +124,7 @@ where
             let tail = self.shared.tail.load(Ordering::Acquire);
             if head != tail {
                 // if not empty...
-                assert_ne!(idx, tail % self.shared.slots.len());
+                assert_ne!(idx, self.shared.location_to_index(tail));
             }
         }
 
@@ -205,7 +205,7 @@ where
 
             let mut fence_ready = false;
             for i in reader_tail..reader_head {
-                let idx = i % self.shared.slots.len();
+                let idx = self.shared.location_to_index(i);
                 // SAFETY:
                 // TODO
                 let readers_remaining = unsafe { self.shared.cleanup(idx) };

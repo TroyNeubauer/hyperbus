@@ -41,6 +41,7 @@ pub mod prelude {
 
         pub(crate) use crate::atomic_waker::AtomicWaker;
         pub(crate) use core::sync::atomic::{fence, AtomicU8, AtomicUsize};
+        pub(crate) use crossbeam_utils::CachePadded;
     }
 
     pub(crate) use atomic::*;
@@ -75,6 +76,9 @@ where
 {
     slots: Arc<[Slot<T>]>,
 
+    /// Mask and-ed with locations to quickly convert to indices
+    slots_mask: usize,
+
     /// Used to awaken the writer when it is waiting for capacity in `slots`.
     writer_waker: AtomicWaker,
 
@@ -98,9 +102,14 @@ where
     T: Send + Clone,
 {
     pub fn new(size: usize) -> Self {
+        let size = size.next_power_of_two();
+        let mask = (1 << size.ilog2()) - 1;
+
         // Due to our fence safety semantics, we cant support Buses with 1 slot
         assert!(size >= 2);
-        let slots: Vec<_> = (0..size).map(|_| Slot::default()).collect();
+        let slots: Vec<_> = (0..size)
+            .map(|_| Slot::default())
+            .collect();
 
         #[cfg(loom)]
         let slots = Arc::from_std(std::sync::Arc::from(slots));
@@ -113,6 +122,7 @@ where
             head: AtomicUsize::new(0),
             tail: AtomicUsize::new(0),
             left_reads_count: AtomicUsize::new(0),
+            slots_mask: mask,
         }
     }
 
@@ -175,7 +185,8 @@ where
         }
 
         if is_last || missed_last_initally {
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+            let old_tail_location = self.tail.fetch_add(1, Ordering::Release);
+            let old_tail_idx = self.location_to_index(old_tail_location);
             #[cfg(any(debug_assertions, loom))]
             assert_eq!(old_tail_idx, idx);
             let _ = old_tail_idx;
@@ -235,7 +246,8 @@ where
         }
 
         if is_last || missed_last_initally {
-            let old_tail_idx = self.tail.fetch_add(1, Ordering::Release) % self.slots.len();
+            let old_tail_location = self.tail.fetch_add(1, Ordering::Release);
+            let old_tail_idx = self.location_to_index(old_tail_location);
 
             #[cfg(any(debug_assertions, loom))]
             assert_eq!(old_tail_idx, idx);
@@ -246,8 +258,12 @@ where
     }
 
     /// Returns an estimate of the number of buffered elements
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.head.load(Ordering::Acquire) - self.tail.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn location_to_index(&self, location: usize) -> usize {
+        location & self.slots_mask
     }
 }
 

@@ -308,3 +308,11 @@ criterion_group!(
 );
 
 criterion_main!(benches);
+
+// 0. Stock base 0%
+// 1. Find slot index via and mask instead of modulus:
+//   7% perf improvement across all thread counts
+// 2. Pad slots to size of cache line to prevent false sharing
+//   
+//
+//
